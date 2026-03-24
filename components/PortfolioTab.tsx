@@ -5,6 +5,19 @@ import { usePortfolio } from '@/lib/usePortfolio'
 import { MetricCard } from './MetricCard'
 import { Spinner } from './Spinner'
 
+interface CoinSummary {
+  id: CoinId
+  coin: typeof COINS[CoinId]
+  totalEur: number
+  totalCoins: number
+  avgBuy: number
+  curPrice: number | undefined
+  curValue: number | null
+  pnl: number | null
+  pct: number | null
+  count: number
+}
+
 export function PortfolioTab() {
   const { entries, addEntry, updateEntry, deleteEntry } = usePortfolio()
   const [currentPrices, setCurrentPrices] = useState<Record<string, { eur: number }>>({})
@@ -18,7 +31,7 @@ export function PortfolioTab() {
     fetchCurrentPrices().then(setCurrentPrices).catch(() => {}).finally(() => setLoading(false))
   }, [])
 
-  const portfolioSummary = (Object.entries(COINS) as [CoinId, typeof COINS[CoinId]][]).map(([id, coin]) => {
+  const portfolioSummary: CoinSummary[] = (Object.entries(COINS) as [CoinId, typeof COINS[CoinId]][]).map(([id, coin]) => {
     const coinEntries = entries.filter(e => e.coin === id)
     if (!coinEntries.length) return null
     const totalEur = coinEntries.reduce((s, e) => s + e.totalEur, 0)
@@ -28,7 +41,7 @@ export function PortfolioTab() {
     const pnl = curValue != null ? curValue - totalEur : null
     const pct = pnl != null ? (pnl / totalEur) * 100 : null
     return { id, coin, totalEur, totalCoins, avgBuy: totalEur / totalCoins, curPrice, curValue, pnl, pct, count: coinEntries.length }
-  }).filter(Boolean) as NonNullable<ReturnType<typeof portfolioSummary[0]>>[]
+  }).filter((p): p is CoinSummary => p !== null)
 
   const grandTotal = portfolioSummary.reduce((s, p) => ({ invested: s.invested + p.totalEur, value: s.value + (p.curValue ?? 0) }), { invested: 0, value: 0 })
   const grandPnl = grandTotal.value - grandTotal.invested
@@ -40,7 +53,8 @@ export function PortfolioTab() {
   function submit() {
     const totalEur = parseFloat(form.amount), price = parseFloat(form.price)
     if (!totalEur || !price || !form.date) return
-    const entry = { coin: form.coin, date: form.date, totalEur, price, coins: totalEur / price }
+    const coins = totalEur / price
+    const entry = { coin: form.coin, date: form.date, totalEur, price, coins }
     if (editId) updateEntry(editId, entry); else addEntry(entry)
     setShowForm(false)
   }
@@ -69,17 +83,17 @@ export function PortfolioTab() {
             <span style={{ fontSize: 12, color: 'var(--text3)' }}>{p.count} achat{p.count > 1 ? 's' : ''}</span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(90px, 1fr))', gap: 10 }}>
-            {[
+            {([
               ['Investi', fmtEur(p.totalEur), null],
               ['Valeur', p.curValue != null ? fmtEur(p.curValue) : '—', null],
               ['P&L', p.pnl != null ? fmtEur(p.pnl) : '—', p.pnl != null ? p.pnl >= 0 : null],
               ['Perf.', p.pct != null ? fmtPct(p.pct) : '—', p.pct != null ? p.pct >= 0 : null],
               ['Prix moy.', fmtEur(p.avgBuy, 0), null],
               ['Prix actuel', p.curPrice ? fmtEur(p.curPrice, 0) : '—', null],
-            ].map(([lbl, val, pos], i) => (
+            ] as [string, string, boolean | null][]).map(([lbl, val, pos], i) => (
               <div key={i}>
-                <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 2 }}>{lbl as string}</div>
-                <div style={{ fontWeight: 500, fontSize: 13, fontFamily: 'DM Mono, monospace', color: pos != null ? (pos ? 'var(--green)' : 'var(--red)') : 'var(--text)' }}>{val as string}</div>
+                <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 2 }}>{lbl}</div>
+                <div style={{ fontWeight: 500, fontSize: 13, fontFamily: 'DM Mono, monospace', color: pos != null ? (pos ? 'var(--green)' : 'var(--red)') : 'var(--text)' }}>{val}</div>
               </div>
             ))}
           </div>
@@ -97,21 +111,24 @@ export function PortfolioTab() {
         <div style={{ background: 'var(--bg2)', borderRadius: 'var(--radius)', padding: '20px', border: '1px solid var(--border2)', animation: 'fadeIn 0.2s ease' }}>
           <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 16 }}>{editId ? 'Modifier' : 'Nouvel'} investissement</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 14, marginBottom: 16 }}>
-            {[
-              { label: 'Crypto', el: (
-                <select value={form.coin} onChange={e => setForm(f => ({ ...f, coin: e.target.value as CoinId }))}>
-                  {(Object.entries(COINS) as [CoinId, typeof COINS[CoinId]][]).map(([id, c]) => <option key={id} value={id}>{c.icon} {c.label}</option>)}
-                </select>
-              )},
-              { label: 'Date', el: <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} /> },
-              { label: 'Montant investi (€)', el: <input type="number" placeholder="ex: 100" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} /> },
-              { label: "Prix d'achat (€)", el: <input type="number" placeholder="ex: 45000" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} /> },
-            ].map(({ label, el }, i) => (
-              <div key={i}>
-                <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 6 }}>{label}</div>
-                {el}
-              </div>
-            ))}
+            <div>
+              <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 6 }}>Crypto</div>
+              <select value={form.coin} onChange={e => setForm(f => ({ ...f, coin: e.target.value as CoinId }))}>
+                {(Object.entries(COINS) as [CoinId, typeof COINS[CoinId]][]).map(([id, c]) => <option key={id} value={id}>{c.icon} {c.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 6 }}>Date</div>
+              <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
+            </div>
+            <div>
+              <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 6 }}>Montant investi (€)</div>
+              <input type="number" placeholder="ex: 100" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} />
+            </div>
+            <div>
+              <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 6 }}>Prix d'achat (€)</div>
+              <input type="number" placeholder="ex: 45000" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} />
+            </div>
           </div>
           {coinsPreview && (
             <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 16, fontFamily: 'DM Mono, monospace' }}>
